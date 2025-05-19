@@ -19,6 +19,7 @@ type NetworkContext struct {
 	macAddress      string
 	port            string
 	conn            net.Conn
+	udpCtx          *UdpContext
 }
 
 type NetworkPackage struct {
@@ -29,6 +30,8 @@ type NetworkPackage struct {
 	SourceIP       string `json:"source_ip"`
 	Data           string `json:"data"`
 }
+
+const port int = 12346
 
 func (ctx *NetworkContext) sendEthernetFrame(destIp string, payload string) {
 	routerIp := "localhost"
@@ -74,7 +77,6 @@ func (ctx *NetworkContext) sendEthernetFrame(destIp string, payload string) {
 	jsonBytes = append(jsonBytes, '\n')
 	ctx.conn.Write(jsonBytes)
 	fmt.Printf("sendEthernetFrame: Отправлено сообщение: %s\n", string(jsonBytes))
-	return
 }
 
 func (ctx *NetworkContext) handleFirstConn(routerIp string) {
@@ -93,7 +95,6 @@ func (ctx *NetworkContext) handleFirstConn(routerIp string) {
 	jsonBytes = append(jsonBytes, '\n')
 	ctx.conn.Write(jsonBytes)
 	fmt.Printf("handleFirstConn: Отправлен ARP-запрос роутеру %s\n", string(jsonBytes))
-	return
 }
 
 func (ctx *NetworkContext) handleArpRequest(message *NetworkPackage) {
@@ -188,23 +189,38 @@ func (ctx *NetworkContext) sendMessages(reader *bufio.Reader, wg *sync.WaitGroup
 
 func main() {
 	args := os.Args
-	if len(args) < 3 {
-		fmt.Println("main: Использование: go run client.go <MAC> <IP>")
+	var ipAddress string
+	var err error
+	var udpCtx *UdpContext
+	if len(args) < 2 {
+		fmt.Println("main: Usage: go run client.go <MAC> <IP>")
 		return
 	}
+
 	macAddress := args[1]
-	ipAddress := args[2]
+	if len(args) == 3 {
+		ipAddress = args[2]
+	} else {
+		udpCtx = &UdpContext{
+			mac: macAddress,
+		}
+		ipAddress, err = udpCtx.getIp()
+		if err != nil {
+			fmt.Printf("main:%s\n", err)
+			return
+		}
+	}
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Printf("main: Клиент запущен с IP: %s\n", ipAddress)
 
-	port := 12346
 	ctx := NetworkContext{
 		ipAddress:       ipAddress,
 		macAddress:      macAddress,
 		arpTable:        make(map[string]string),
 		pendingMessages: make(map[string][]string),
 		port:            strconv.Itoa(port),
+		udpCtx:          udpCtx,
 	}
 
 	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
